@@ -29,7 +29,7 @@ This tool records each show from the live stream and saves it as an audio file t
 ## What the tool does
 
 - **Reads the schedule each day.** At 6:07 am each day, and each time you log in, the Mac reads the WRMC weekly schedule at <https://wrmc.middlebury.edu/schedule-weekly>.
-- **Finds Avery's shows.** It finds each show where Avery Murch is a host. It uses her host tag on the website, so it still finds her shows if a show gets a new name or a new time.
+- **Finds Avery's shows.** It finds each show where my daughter is a host. It uses her host tag on the website, so it still finds her shows if a show gets a new name or a new time. Obviously change this tag to your desired show.
 - **Sets the recordings.** For each of her shows in the next 8 days, it sets a recording. The recording starts 2 minutes before the show and stops 2 minutes after it.
 - **Uses the correct time.** The website gives each show time in New York time with the time zone. The Mac converts it to your local time. Clock changes in the US and the UK do not cause errors.
 - **Reminds you 12 hours before.** It adds an item to Apple Reminders (this syncs to your iPhone). It also shows a Mac alert, which can keep the Mac awake until the show ends.
@@ -249,7 +249,7 @@ If the Mac was asleep at the start time and wakes during the show, the tool reco
 ### `wrmc list` shows no shows
 
 1. Type `wrmc update` and read the result.
-2. If you see "No shows by Avery found", her shows are not on the schedule this week (for example, during a college break). The tool tries again each day.
+2. If you see "No shows by _name_ found", her shows are not on the schedule this week (for example, during a college break). The tool tries again each day.
 3. If you see "Could not download schedule", see [The schedule does not download](#the-schedule-does-not-download).
 4. If Avery's shows are on the website but the tool does not find them, the website may have changed its host tags. Open the schedule page, click her show, and look at the link on her name. Put the last part of that link in `HOST_TAGS`, or put the show names in `SHOW_TITLES`. See [Settings](#settings).
 
