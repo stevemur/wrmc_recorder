@@ -1,0 +1,394 @@
+# WRMC Recorder
+
+This tool records specific radio shows on WRMC 91.1 FM (Middlebury College) on a Mac. Currently it's tuned to look at the calendar for
+two key show names, and it is MacOS specific.
+
+Challenge: WRMC does not keep recordings of its shows. But due to time-zone differences, I often miss my daughter's shows.
+
+This tool records each show from the live stream and saves it as an audio file that you can play later.
+
+---
+
+## Contents
+
+1. [What the tool does](#what-the-tool-does)
+2. [Files in this folder](#files-in-this-folder)
+3. [Requirements](#requirements)
+4. [Installation](#installation)
+5. [Check the installation](#check-the-installation)
+6. [Commands](#commands)
+7. [Where the files go](#where-the-files-go)
+8. [Settings](#settings)
+9. [Update the tool](#update-the-tool)
+10. [Remove the tool](#remove-the-tool)
+11. [Troubleshooting](#troubleshooting)
+12. [How it works](#how-it-works)
+
+---
+
+## What the tool does
+
+- **Reads the schedule each day.** At 6:07 am each day, and each time you log in, the Mac reads the WRMC weekly schedule at <https://wrmc.middlebury.edu/schedule-weekly>.
+- **Finds Avery's shows.** It finds each show where Avery Murch is a host. It uses her host tag on the website, so it still finds her shows if a show gets a new name or a new time.
+- **Sets the recordings.** For each of her shows in the next 8 days, it sets a recording. The recording starts 2 minutes before the show and stops 2 minutes after it.
+- **Uses the correct time.** The website gives each show time in New York time with the time zone. The Mac converts it to your local time. Clock changes in the US and the UK do not cause errors.
+- **Reminds you 12 hours before.** It adds an item to Apple Reminders (this syncs to your iPhone). It also shows a Mac alert, which can keep the Mac awake until the show ends.
+- **Tells you about the next show.** When you run an update yourself, you get a notification with the next show and its time.
+- **Tells you when a recording is saved.** You get a notification when each recording is complete.
+
+At the time of writing, the tool watches two shows:
+
+| Show      | Day      | New York time    | UK time (winter) |
+| --------- | -------- | ---------------- | ---------------- |
+| Trail Mix | Saturday | 9:00 to 10:00 am | 2:00 to 3:00 pm  |
+| TAM       | Sunday   | 4:00 to 5:00 pm  | 9:00 to 10:00 pm |
+
+The tool reads the current schedule each day, so you do not need to change anything if these times change.
+
+---
+
+## Files in this folder
+
+| File                       | Purpose                                                           |
+| -------------------------- | ----------------------------------------------------------------- |
+| `README.mdown`             | This guide.                                                       |
+| `install_wrmc_recorder.sh` | The installer. Run it one time. You can run it again at any time. |
+| `wrmc.py`                  | The program. The installer copies it into place.                  |
+
+Keep `wrmc.py` in the same folder as the installer. The installer copies it into place each time it runs. Thus, you can edit `wrmc.py` here and run the installer again to apply your changes.
+
+---
+
+## Requirements
+
+- A Mac with macOS 12 or later.
+- **Apple command line tools.** These give you Python 3. To install them, open Terminal and type `xcode-select --install`.
+- **Homebrew.** The installer uses it to install ffmpeg. Get it from <https://brew.sh>.
+- **ffmpeg.** The installer installs it for you if it is not on the Mac.
+- An internet connection at show time.
+- The Mac must be **on and awake** at show time. See [Keep the Mac awake](#keep-the-mac-awake).
+
+---
+
+## Installation
+
+1. Open **Terminal** (in Applications > Utilities).
+2. Type this command and press Return:
+
+   ```
+   bash ~/build/wrmc_recorder/install_wrmc_recorder.sh
+   ```
+
+3. If macOS asks to let Terminal or python3 control **Reminders**, click **OK**.
+4. Wait for the installer to finish. The Reminders step can take up to one minute. At the end, the installer shows a list of the shows that it set to record.
+5. Close the Terminal window and open a **new** Terminal window. The new window knows the `wrmc` command.
+
+The installer does these steps:
+
+1. It makes sure that Python 3 and ffmpeg are on the Mac.
+2. It removes the older fixed-time version of the recorder, if it is on the Mac.
+3. It copies `wrmc.py` to `~/Library/Application Support/WRMC/`.
+4. It makes the `wrmc` command in `~/.local/bin/` and adds that folder to your PATH.
+5. It reads the schedule and sets the recordings and reminders.
+6. It turns on the daily schedule check.
+
+---
+
+## Check the installation
+
+Do these checks after you install:
+
+1. Open a new Terminal window.
+2. Type `wrmc test` and press Return. The tool records 30 seconds of the live stream.
+3. You get a notification: "Saved Test_YYYY-MM-DD.m4a".
+4. Open `Music/WRMC` in Finder and play the test file.
+5. Type `wrmc list`. You see the shows that are set to record, in New York time and in your local time.
+6. Open the Reminders app. You see one item for each show, such as "WRMC: keep Mac on for TAM (Sun 01 Nov 21:00)".
+
+You can delete the test file after you play it.
+
+---
+
+## Commands
+
+Type these commands in Terminal.
+
+| Command          | What it does                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| `wrmc next`      | Shows the target's next show and sends a notification.                              |
+| `wrmc list`      | Shows all the shows that are set to record.                                         |
+| `wrmc update`    | Reads the schedule now, sets recordings and reminders, and tells you the next show. |
+| `wrmc test`      | Records 30 seconds now, to make sure that recording works.                          |
+| `wrmc uninstall` | Removes all scheduled recordings and reminders, and the daily check.                |
+
+The Mac runs these two commands by itself. You do not need to use them:
+
+| Command                       | What it does                            |
+| ----------------------------- | --------------------------------------- |
+| `wrmc record TITLE START END` | Records one show.                       |
+| `wrmc remind TITLE START END` | Shows the alert 12 hours before a show. |
+
+---
+
+## Where the files go
+
+| Item             | Location                                                           |
+| ---------------- | ------------------------------------------------------------------ |
+| Recordings       | `~/Music/WRMC/`                                                    |
+| Log file         | `~/Music/WRMC/recorder.log`                                        |
+| Program          | `~/Library/Application Support/WRMC/wrmc.py`                       |
+| Current schedule | `~/Library/Application Support/WRMC/schedule.json`                 |
+| `wrmc` command   | `~/.local/bin/wrmc`                                                |
+| Daily check      | `~/Library/LaunchAgents/com.murch.wrmc.update.plist`               |
+| One recording    | `~/Library/LaunchAgents/com.murch.wrmc.show.<date>.<show>.plist`   |
+| One alert        | `~/Library/LaunchAgents/com.murch.wrmc.remind.<date>.<show>.plist` |
+
+### Recording file names
+
+Each recording has the show name and the show date (New York date). For example:
+
+- `TrailMix_2026-10-31.m4a`
+- `TAM_2026-11-01.m4a`
+
+If a file with the same name is already there, the tool adds the time to the new name. It does not write over a recording.
+
+The files are AAC audio in an `.m4a` container. They play in Apple Music, QuickTime, VLC, and on iPhone. Each file has the show name, the date, and "WRMC 91.1 FM" in its information, so Apple Music sorts them well.
+
+---
+
+## Settings
+
+To change a setting:
+
+1. Open `~/build/wrmc_recorder/wrmc.py` in a text editor.
+2. Change the value near the top of the file, in the "Settings" section.
+3. Save the file.
+4. Run the installer again: `bash ~/build/wrmc_recorder/install_wrmc_recorder.sh`
+
+| Setting               | Default                                       | What it controls                                                                                                    |
+| --------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `HOST_TAGS`           | `["avery-murch"]`                             | The host tags to find. The tag is the last part of the host link on the schedule page, such as `/tags/avery-murch`. |
+| `SHOW_TITLES`         | `[]`                                          | Show names to record, even if the hosts change. Example: `["TAM", "Trail Mix"]`.                                    |
+| `START_EARLY_MIN`     | `2`                                           | Minutes to start before the show.                                                                                   |
+| `END_LATE_MIN`        | `2`                                           | Minutes to continue after the show.                                                                                 |
+| `LOOKAHEAD_DAYS`      | `8`                                           | How many days ahead to set recordings.                                                                              |
+| `REMIND_HOURS_BEFORE` | `12`                                          | Hours before the show for the reminder and the Mac alert.                                                           |
+| `USE_APPLE_REMINDERS` | `True`                                        | Set to `False` to stop adding items to Apple Reminders. The Mac alert still works.                                  |
+| `STREAM_URL`          | `https://us2.maindigitalstream.com/ssl/WRMC`  | The live audio stream.                                                                                              |
+| `SCHEDULE_URL`        | `https://wrmc.middlebury.edu/schedule-weekly` | The schedule page.                                                                                                  |
+
+**Note about reminder times:** Trail Mix starts at about 1:00 or 2:00 pm UK time. Thus, a 12-hour reminder comes at about 1:00 or 2:00 am. If you prefer a different time, change `REMIND_HOURS_BEFORE`.
+
+---
+
+## Update the tool
+
+If you get a new version of the files:
+
+1. Put the new files in `~/build/wrmc_recorder/`.
+2. Run the installer again: `bash ~/build/wrmc_recorder/install_wrmc_recorder.sh`
+
+The installer is safe to run many times. It keeps your recordings, and it does not stop a recording that is in progress.
+
+---
+
+## Remove the tool
+
+1. Type `wrmc uninstall`. This removes all scheduled recordings, all Mac alerts, and the daily check.
+2. If you want, also delete these items:
+   - `~/Library/Application Support/WRMC/`
+   - `~/.local/bin/wrmc`
+   - Any items in Reminders that start with "WRMC:"
+
+Your recordings in `~/Music/WRMC/` stay on the Mac. Delete them yourself if you do not want them.
+
+---
+
+## Troubleshooting
+
+### First, look at the log
+
+Most problems show in the log file. To see the last 30 lines, type:
+
+```
+tail -30 ~/Music/WRMC/recorder.log
+```
+
+Each line starts with the date and time. Look for lines with "FAILED", "WARNING", or "Could not".
+
+### Keep the Mac awake
+
+This is the most common cause of a missed recording. The Mac must be on and awake when the show starts.
+
+- Keep the Mac plugged in to power.
+- Keep the lid open. (A closed MacBook goes to sleep unless it has an external display.)
+- In **System Settings > Battery > Options** (or **Energy**), turn on **"Prevent automatic sleeping on power adapter when the display is off"**.
+- When the 12-hour alert comes, click **"Keep Mac awake until the show ends"**. If you do not answer the alert, the Mac stays awake anyway.
+
+When a recording starts, the tool keeps the Mac awake until the recording stops.
+
+If the Mac was asleep at the start time and wakes during the show, the tool records the rest of the show.
+
+### The installer seems to stop or hang
+
+- The Reminders step can take up to one minute. Wait for it.
+- macOS can show a permission window behind the Terminal window. Look for it and click **OK**.
+- If nothing happens after two minutes, press **Ctrl + C**. Then run the installer again. The recordings are set before the Reminders step, so they still work.
+
+### "command not found: wrmc"
+
+- Open a **new** Terminal window. Old windows do not know the new command.
+- If it still fails, use the full command:
+
+  ```
+  python3 ~/Library/Application\ Support/WRMC/wrmc.py list
+  ```
+
+- Make sure that `~/.zshrc` has this line: `export PATH="$HOME/.local/bin:$PATH"`
+
+### `wrmc list` shows no shows
+
+1. Type `wrmc update` and read the result.
+2. If you see "No shows by Avery found", her shows are not on the schedule this week (for example, during a college break). The tool tries again each day.
+3. If you see "Could not download schedule", see [The schedule does not download](#the-schedule-does-not-download).
+4. If Avery's shows are on the website but the tool does not find them, the website may have changed its host tags. Open the schedule page, click her show, and look at the link on her name. Put the last part of that link in `HOST_TAGS`, or put the show names in `SHOW_TITLES`. See [Settings](#settings).
+
+### The schedule does not download
+
+- Make sure that the Mac is on the internet.
+- Open <https://wrmc.middlebury.edu/schedule-weekly> in a browser to make sure that the site works.
+- Try this command, which shows the size of the page:
+
+  ```
+  curl -sL https://wrmc.middlebury.edu/schedule-weekly | wc -c
+  ```
+
+  A number above 100000 is correct. A small number or an error means a network or site problem.
+
+- If the download fails, the tool keeps the recordings that it already set.
+
+### The test recording fails, or the file is empty
+
+1. Make sure that ffmpeg is installed: `ffmpeg -version`. If not, type `brew install ffmpeg`.
+2. Make sure that the stream works. Type this command. It records 10 seconds to your Desktop:
+
+   ```
+   ffmpeg -i https://us2.maindigitalstream.com/ssl/WRMC -t 10 -c copy ~/Desktop/stream_test.aac
+   ```
+
+3. If that fails, the stream address may have changed. Go to <https://wrmc.middlebury.edu>, click **Listen Now**, and find the new stream address (see [Find a new stream address](#find-a-new-stream-address)). Put it in `STREAM_URL` in `wrmc.py` and run the installer again.
+
+### A show was not recorded
+
+1. Look at the log: `tail -50 ~/Music/WRMC/recorder.log`
+2. If there is no "Recording ..." line for that show:
+   - The Mac was probably asleep or off. See [Keep the Mac awake](#keep-the-mac-awake).
+   - Or the show was not set. Type `wrmc list` to see what is set now.
+3. If there is a "Recording ..." line but the file is short:
+   - The internet connection probably stopped. The tool tries to reconnect for 30 seconds. If the connection stops for longer, the recording ends early.
+   - Look at the "ffmpeg exit code" in the "Finished" line. Code 0 is a good result.
+
+### The recording starts or stops at the wrong time
+
+- Make sure that the Mac has the correct time and time zone: **System Settings > General > Date & Time**. Turn on "Set time and date automatically".
+- Type `wrmc list`. Compare the New York time with the schedule page.
+- If you changed the time zone on the Mac, type `wrmc update`.
+
+### No Apple Reminders items
+
+- Open **System Settings > Privacy & Security > Automation**. Make sure that Terminal and python3 can control **Reminders**.
+- The tool puts items in your **default** Reminders list. Look in that list.
+- Look in the log for "Could not update Apple Reminders".
+- If you do not want Reminders items, set `USE_APPLE_REMINDERS = False`. The Mac alert still works.
+
+### No notifications
+
+- Open **System Settings > Notifications**. Find **Script Editor** (macOS shows notifications from scripts with this name) and turn on **Allow notifications**.
+- Make sure that Focus or Do Not Disturb is off.
+
+### Old reminders or alerts for a show that moved
+
+The daily check removes old items when the schedule changes. To do it now, type `wrmc update`.
+
+### See what launchd has scheduled
+
+To see all WRMC jobs that macOS knows about, type:
+
+```
+launchctl list | grep wrmc
+```
+
+You see one line for the daily check, one line for each recording, and one line for each alert.
+
+### Find a new stream address
+
+If the station changes its stream:
+
+1. Open <https://wrmc.middlebury.edu> in Chrome and click **Listen Now**.
+2. Press **Cmd + Option + I** to open the developer tools, then click **Network**.
+3. Click play. Look for a request that continues to load (the audio stream). Often the address has "stream", "ssl", ".mp3", or ".aac" in it.
+4. Right-click it and copy the URL. Put it in `STREAM_URL` in `wrmc.py`, and run the installer again.
+
+### Start again from the beginning
+
+```
+wrmc uninstall
+bash ~/build/wrmc_recorder/install_wrmc_recorder.sh
+```
+
+---
+
+## How it works
+
+This section is for people who want to change the tool.
+
+### Schedule
+
+The schedule page has one `<article class="show-teaser">` element for each show. Each element has:
+
+- Two `<time datetime="...">` elements: the start and end, with the time zone (for example `2026-10-31T09:00:00-0400`).
+- An `<h3>` element with the show name.
+- Links to `/tags/<host-name>` for each host.
+
+Each show is on the page two times (in the grid and in the list). The tool removes the copies. It uses only the Python standard library to read the page.
+
+### Scheduling
+
+The tool uses **launchd**, which is the macOS system that starts jobs at set times. (macOS does not support time zones in cron, so cron is not a good choice.)
+
+- `com.murch.wrmc.update` runs each day at 6:07 am and at login. It runs `wrmc.py update --quiet`.
+- For each show, `com.murch.wrmc.show.*` runs at the start time minus 2 minutes, on that date. It runs `wrmc.py record`.
+- For each show, `com.murch.wrmc.remind.*` runs 12 hours before. It runs `wrmc.py remind`.
+
+The times in these jobs are in the Mac's local time. The tool calculates them again each day, so clock changes are always correct.
+
+If the Mac is asleep at a job time, launchd runs the job when the Mac wakes. The record step then records the remaining part of the show. If the remaining time is less than one minute, it does not record.
+
+The show jobs also run at login. The record step checks the time and records only if the show is on air or starts within 10 minutes. A lock file prevents two recordings of the same show.
+
+### Recording
+
+The tool uses ffmpeg to copy the stream with no change in quality:
+
+```
+caffeinate -i ffmpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 30 \
+  -i https://us2.maindigitalstream.com/ssl/WRMC -t <seconds> \
+  -c copy -bsf:a aac_adtstoasc <file>.m4a
+```
+
+- `caffeinate -i` keeps the Mac awake during the recording.
+- The `-reconnect` options try to connect again if the stream stops for a short time.
+- `-c copy` saves the audio as it is, with no conversion.
+
+### Stream
+
+- Player page: `https://us7.maindigitalstream.com/4302/`
+- Audio stream: `https://us2.maindigitalstream.com/ssl/WRMC` (type `audio/aacp`)
+
+### Apple Reminders
+
+The tool uses AppleScript to make the Reminders items. It reads the names of open reminders one time, adds the items that are not there, and deletes old items that start with "WRMC:". It saves a record of the last set of items, and it does not use the Reminders app if nothing has changed. This is because AppleScript access to Reminders is slow.
+
+---
+
+_For personal use. Please respect the station and the hosts: these recordings are for your family to listen to, not to share in public._
