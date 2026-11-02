@@ -5,8 +5,9 @@ WRMC show recorder for Avery's shows.
 Commands:
   wrmc.py update [--quiet]           Read the weekly schedule. For each of
                                      Avery's shows in the next 8 days, set a
-                                     recording, a Mac alert 12 hours before,
-                                     and an Apple Reminder. Then show a
+                                     recording, plus a Mac alert and an
+                                     Apple Reminder 12, 5, and 2 hours
+                                     before. Then show a
                                      notice about the next show.
   wrmc.py next                       Show (and notify) Avery's next show.
   wrmc.py list                       Show the shows that are set to record.
@@ -43,7 +44,7 @@ SHOW_TITLES = []
 START_EARLY_MIN = 2      # start recording this many minutes early
 END_LATE_MIN = 2         # stop recording this many minutes late
 LOOKAHEAD_DAYS = 8
-REMIND_HOURS_BEFORE = 12  # Mac alert and Apple Reminder this many hours before
+REMIND_HOURS_BEFORE = (12, 5, 2)  # Mac alert and Apple Reminder at each of these hours before
 USE_APPLE_REMINDERS = True  # also add a reminder in the Reminders app (syncs to iPhone)
 
 HOME = os.path.expanduser("~")
@@ -178,6 +179,12 @@ def is_loaded(label):
                           capture_output=True).returncode == 0
 
 
+def is_running(label):
+    r = subprocess.run(["launchctl", "print", f"gui/{UID}/{label}"],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and "state = running" in r.stdout
+
+
 def load(path):
     subprocess.run(["launchctl", "bootstrap", f"gui/{UID}", path], capture_output=True)
 
@@ -207,12 +214,13 @@ def show_plist(show, label):
 
 # ---- Commands ---------------------------------------------------------------
 
-def remind_label_for(show):
-    return REMIND_PREFIX + show["start"].strftime("%Y%m%d%H%M") + "." + safe_name(show["title"]).lower()
+def remind_label_for(show, hours):
+    return (REMIND_PREFIX + show["start"].strftime("%Y%m%d%H%M") + "."
+            + safe_name(show["title"]).lower() + f".{hours}h")
 
 
-def remind_plist(show, label):
-    fire = (show["start"] - timedelta(hours=REMIND_HOURS_BEFORE)).astimezone()
+def remind_plist(show, label, hours):
+    fire = (show["start"] - timedelta(hours=hours)).astimezone()
     return {
         "Label": label,
         "ProgramArguments": [
@@ -245,8 +253,8 @@ def ensure_agent(label, plist_dict):
 
 def remove_stale_agents(prefix, wanted, now, keep_until_end=False):
     """Remove agents for shows that ended or left the schedule.
-    Never stop one whose show is on air now. With keep_until_end, keep it
-    until the show ends (a reminder may be keeping the Mac awake)."""
+    Never stop one whose show is on air now. With keep_until_end, never stop
+    one that is running now (an alert may be keeping the Mac awake)."""
     for path in glob.glob(os.path.join(AGENTS_DIR, prefix + "*.plist")):
         label = os.path.basename(path)[:-len(".plist")]
         if label in wanted:
@@ -257,8 +265,10 @@ def remove_stale_agents(prefix, wanted, now, keep_until_end=False):
             end = datetime.fromisoformat(args[-1])
         except Exception:
             start = end = now
-        protect_from = now if keep_until_end else start - timedelta(minutes=10)
-        if protect_from <= now <= end + timedelta(minutes=END_LATE_MIN):
+        if keep_until_end:
+            if is_running(label):
+                continue
+        elif start - timedelta(minutes=10) <= now <= end + timedelta(minutes=END_LATE_MIN):
             continue
         unload(label)
         os.remove(path)
@@ -276,8 +286,9 @@ def as_applescript_date(var, dt):
             f"set time of {var} to {dt.hour * 3600 + dt.minute * 60}\n")
 
 
-def reminder_name(show):
-    return f"WRMC: keep Mac on for {show['title']} ({show['start'].astimezone():%a %d %b %H:%M})"
+def reminder_name(show, hours):
+    return (f"WRMC: lid open for {show['title']} "
+            f"({show['start'].astimezone():%a %d %b %H:%M}, {hours} h before)")
 
 
 def sync_apple_reminders(upcoming, now, quiet=False):
@@ -290,11 +301,15 @@ def sync_apple_reminders(upcoming, now, quiet=False):
         return s.replace("\\", "\\\\").replace('"', '\\"')
     items = []
     for s in upcoming:
-        when = max(s["start"] - timedelta(hours=REMIND_HOURS_BEFORE), now + timedelta(minutes=1))
         body = (f"Avery's show {s['title']} starts at {s['start'].astimezone():%H:%M} "
-                f"on {s['start'].astimezone():%A %d %B}. Keep the Mac plugged in, "
-                f"open, and awake so it can record the show.")
-        items.append((reminder_name(s), body, when))
+                f"on {s['start'].astimezone():%A %d %B}. Do NOT close the Mac's lid. "
+                f"A closed Mac sleeps and the recording fails. Keep it open and "
+                f"plugged in.")
+        for h in REMIND_HOURS_BEFORE:
+            when = s["start"] - timedelta(hours=h)
+            if when <= now:
+                continue  # that time has passed; a later reminder covers it
+            items.append((reminder_name(s, h), body, when))
 
     state_file = os.path.join(APP_DIR, "reminders_done.json")
     signature = sorted(n for n, _, _ in items)
@@ -330,11 +345,11 @@ def sync_apple_reminders(upcoming, now, quiet=False):
                            capture_output=True, text=True, timeout=90)
     except subprocess.TimeoutExpired:
         log("Apple Reminders did not answer in 90 seconds. It will try again at "
-            "the next update. (The Mac alert 12 hours before the show still works.)")
+            "the next update. (The Mac alerts before the show still work.)")
         return
     if r.returncode != 0:
         log(f"Could not update Apple Reminders: {r.stderr.strip()} "
-            f"(The Mac alert 12 hours before the show still works.)")
+            f"(The Mac alerts before the show still work.)")
         return
     with open(state_file, "w") as f:
         json.dump(signature, f)
@@ -390,15 +405,16 @@ def cmd_update(quiet=False):
                 f"= {s['start'].astimezone():%a %d %b %H:%M} on this Mac")
     remove_stale_agents(SHOW_PREFIX, wanted, now)
 
-    # 2. Mac alerts 12 hours before (only if that time is still ahead).
+    # 2. Mac alerts 12, 5, and 2 hours before (only times still ahead).
     wanted_r = {}
     for s in upcoming:
-        if s["start"] - timedelta(hours=REMIND_HOURS_BEFORE) <= now:
-            continue
-        label = remind_label_for(s)
-        wanted_r[label] = s
-        if ensure_agent(label, remind_plist(s, label)):
-            log(f"Mac alert set: {REMIND_HOURS_BEFORE} hours before {s['title']}")
+        for h in REMIND_HOURS_BEFORE:
+            if s["start"] - timedelta(hours=h) <= now:
+                continue
+            label = remind_label_for(s, h)
+            wanted_r[label] = s
+            if ensure_agent(label, remind_plist(s, label, h)):
+                log(f"Mac alert set: {h} hours before {s['title']}")
     remove_stale_agents(REMIND_PREFIX, wanted_r, now, keep_until_end=True)
 
     # 3. Apple Reminders (also reach the iPhone).
@@ -418,7 +434,7 @@ def cmd_update(quiet=False):
 
 
 def cmd_remind(title, start_s, end_s):
-    """Alert 12 hours before a show. Can keep the Mac awake until the show ends."""
+    """Alert some hours before a show. Can keep the Mac awake until the show ends."""
     start, end = datetime.fromisoformat(start_s), datetime.fromisoformat(end_s)
     now = datetime.now(timezone.utc)
     if now >= end:
@@ -433,7 +449,8 @@ def cmd_remind(title, start_s, end_s):
         pass
     show = {"title": title, "start": start, "end": end}
     msg = (f"Avery's show {describe(show)}. "
-           f"Keep this Mac plugged in, with the lid open, so it can record the show.")
+           f"Do NOT close the lid. A closed Mac sleeps and the recording fails. "
+           f"Keep this Mac open and plugged in until the show ends.")
     script = (f'display alert "WRMC: {title}" message "{msg}" '
               f'buttons {{"OK", "Keep Mac awake until the show ends"}} '
               f'default button 2 giving up after 3600')
