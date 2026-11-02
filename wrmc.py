@@ -23,6 +23,7 @@ import json
 import os
 import plistlib
 import re
+import signal
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -63,7 +64,10 @@ os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH"
 def log(msg):
     os.makedirs(OUT_DIR, exist_ok=True)
     line = f"{datetime.now():%Y-%m-%d %H:%M:%S}  {msg}"
-    print(line)
+    # Under launchd, stdout already goes to LOG_FILE. Print only in a Terminal,
+    # or each line is written twice.
+    if sys.stdout.isatty():
+        print(line)
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 
@@ -474,26 +478,106 @@ def cmd_list():
     return 0
 
 
-def record(title, seconds, date_tag):
+RETRY_WAIT_SEC = 15     # wait this long before trying the stream again
+MIN_ATTEMPT_SEC = 20    # do not start an attempt with less time than this left
+MIN_FILE_BYTES = 20000  # delete a part smaller than this (a few seconds of audio)
+
+
+def audio_seconds(path):
+    """Length of an audio file in seconds, or 0 if ffprobe cannot read it."""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", path],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def record(title, stop, date_tag):
+    """Record the stream until `stop` (an aware datetime).
+
+    If ffmpeg stops early (no network after wake-up, the stream drops), wait
+    and try again until `stop`. Each attempt saves to its own file, so a
+    retry never writes over audio that is already saved.
+    """
+    import time
     os.makedirs(OUT_DIR, exist_ok=True)
-    out = os.path.join(OUT_DIR, f"{safe_name(title)}_{date_tag}.m4a")
-    if os.path.exists(out):
-        out = out[:-4] + f"_{datetime.now():%H%M%S}.m4a"
-    log(f"Recording {title} for {seconds // 60} min {seconds % 60} s -> {out}")
-    r = subprocess.run([
-        "caffeinate", "-i", "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "30",
-        "-i", STREAM_URL, "-t", str(seconds),
-        "-c", "copy", "-bsf:a", "aac_adtstoasc",
-        "-metadata", f"title={title} {date_tag}",
-        "-metadata", "artist=WRMC 91.1 FM",
-        "-metadata", f"album={title}",
-        out,
-    ])
-    log(f"Finished {title} (ffmpeg exit code {r.returncode})")
-    if r.returncode == 0:
-        notify(f"Saved {os.path.basename(out)}")
-    return r.returncode
+    base = os.path.join(OUT_DIR, f"{safe_name(title)}_{date_tag}")
+    # Keep the Mac awake for the whole recording, retries included.
+    total = int((stop - datetime.now(timezone.utc)).total_seconds())
+    awake = subprocess.Popen(["caffeinate", "-i", "-t", str(max(total, 1) + 60)])
+    saved, attempt = [], 0
+    try:
+        while True:
+            seconds = int((stop - datetime.now(timezone.utc)).total_seconds())
+            if seconds < MIN_ATTEMPT_SEC:
+                break
+            attempt += 1
+            out = base + ".mp3"
+            if os.path.exists(out):
+                out = base + f"_{datetime.now():%H%M%S}.mp3"
+            log(f"Recording {title} for {seconds // 60} min {seconds % 60} s "
+                f"(attempt {attempt}) -> {out}")
+            r = subprocess.Popen([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-reconnect", "1", "-reconnect_streamed", "1",
+                "-reconnect_on_network_error", "1", "-reconnect_delay_max", "30",
+                # If no data arrives for 30 s (for example after the Mac
+                # sleeps), give up so the retry loop can start a new attempt.
+                "-rw_timeout", "30000000",
+                "-i", STREAM_URL, "-t", str(seconds),
+                # MP3, not .m4a: an .m4a gets its index only when ffmpeg
+                # exits cleanly, so a crash or sleep leaves a file that will
+                # not play. An MP3 plays up to the last byte written.
+                # The stream is 64 kbps AAC; 128 kbps MP3 keeps that quality.
+                "-vn", "-c:a", "libmp3lame", "-b:a", "128k",
+                "-id3v2_version", "3",
+                "-metadata", f"title={title} {date_tag}",
+                "-metadata", "artist=WRMC 91.1 FM",
+                "-metadata", f"album={title}",
+                out,
+            ])
+            try:
+                r.wait(timeout=seconds + 120)
+            except subprocess.TimeoutExpired:
+                # ffmpeg is stuck. SIGINT lets it close the file properly.
+                log("ffmpeg did not stop on time. Stopping it.")
+                r.send_signal(signal.SIGINT)
+                try:
+                    r.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    r.kill()
+                    r.wait()
+            got = 0.0
+            if os.path.exists(out):
+                if os.path.getsize(out) < MIN_FILE_BYTES:
+                    os.remove(out)
+                else:
+                    saved.append(out)
+                    got = audio_seconds(out)
+            left = int((stop - datetime.now(timezone.utc)).total_seconds())
+            log(f"Attempt {attempt} for {title} ended (ffmpeg exit code {r.returncode}), "
+                f"saved {int(got)} of {seconds} s")
+            # The server sends buffered audio fast at the start, so ffmpeg can
+            # finish before the clock says so. Judge by the audio, not the clock.
+            if got >= seconds - MIN_ATTEMPT_SEC or left < MIN_ATTEMPT_SEC:
+                break
+            log(f"Stream stopped early. Trying again in {RETRY_WAIT_SEC} s.")
+            time.sleep(RETRY_WAIT_SEC)
+    finally:
+        awake.terminate()
+
+    if saved:
+        log(f"Finished {title}: saved {', '.join(os.path.basename(p) for p in saved)}")
+        notify(f"Saved {os.path.basename(saved[0])}"
+               + (f" (+{len(saved) - 1} more part)" if len(saved) > 1 else ""))
+        return 0
+    log(f"FAILED {title}: no audio saved after {attempt} attempt(s)")
+    notify(f"Recording FAILED: {title}")
+    return 1
 
 
 def cmd_record(title, start_s, end_s):
@@ -502,8 +586,7 @@ def cmd_record(title, start_s, end_s):
     if now < start - timedelta(minutes=10):
         return 0  # launched at login long before the show; nothing to do
     stop = end + timedelta(minutes=END_LATE_MIN)
-    seconds = int((stop - now).total_seconds())
-    if seconds < 60:
+    if (stop - now).total_seconds() < 60:
         return 0  # show is over
     # If a recording of this show is already running, do not start a second one.
     import fcntl
@@ -513,7 +596,7 @@ def cmd_record(title, start_s, end_s):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return 0
-    return record(title, seconds, start.strftime("%Y-%m-%d"))
+    return record(title, stop, start.strftime("%Y-%m-%d"))
 
 
 def cmd_uninstall():
@@ -538,7 +621,8 @@ def main(argv):
     if cmd == "list":
         return cmd_list()
     if cmd == "test":
-        return record("Test", 30, datetime.now().strftime("%Y-%m-%d"))
+        return record("Test", datetime.now(timezone.utc) + timedelta(seconds=30),
+                      datetime.now().strftime("%Y-%m-%d"))
     if cmd == "record" and len(argv) == 4:
         return cmd_record(*argv[1:])
     if cmd == "uninstall":

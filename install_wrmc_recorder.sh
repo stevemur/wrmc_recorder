@@ -3,7 +3,7 @@
 # Each day it reads https://wrmc.middlebury.edu/schedule-weekly, finds
 # every show that Avery hosts, and sets a launchd event to record it.
 # It also sets a Mac alert and an Apple Reminder 12 hours before each show.
-# Recordings go to ~/Music/WRMC as .m4a files.
+# Recordings go to ~/Music/WRMC as .mp3 files.
 #
 # Install:        bash install_wrmc_recorder.sh
 # Next show:      wrmc next      (after you open a new Terminal window)

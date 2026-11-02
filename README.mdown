@@ -100,7 +100,7 @@ Do these checks after you install:
 
 1. Open a new Terminal window.
 2. Type `wrmc test` and press Return. The tool records 30 seconds of the live stream.
-3. You get a notification: "Saved Test_YYYY-MM-DD.m4a".
+3. You get a notification: "Saved Test_YYYY-MM-DD.mp3".
 4. Open `Music/WRMC` in Finder and play the test file.
 5. Type `wrmc list`. You see the shows that are set to record, in New York time and in your local time.
 6. Open the Reminders app. You see one item for each show, such as "WRMC: keep Mac on for TAM (Sun 01 Nov 21:00)".
@@ -147,12 +147,12 @@ The Mac runs these two commands by itself. You do not need to use them:
 
 Each recording has the show name and the show date (New York date). For example:
 
-- `TrailMix_2026-10-31.m4a`
-- `TAM_2026-11-01.m4a`
+- `TrailMix_2026-10-31.mp3`
+- `TAM_2026-11-01.mp3`
 
 If a file with the same name is already there, the tool adds the time to the new name. It does not write over a recording.
 
-The files are AAC audio in an `.m4a` container. They play in Apple Music, QuickTime, VLC, and on iPhone. Each file has the show name, the date, and "WRMC 91.1 FM" in its information, so Apple Music sorts them well.
+The files are 128 kbps MP3. If the Mac sleeps or the recorder stops early, the file still plays up to that point. They play in Apple Music, QuickTime, VLC, and on iPhone. Each file has the show name, the date, and "WRMC 91.1 FM" in its information, so Apple Music sorts them well.
 
 ---
 
@@ -368,16 +368,18 @@ The show jobs also run at login. The record step checks the time and records onl
 
 ### Recording
 
-The tool uses ffmpeg to copy the stream with no change in quality:
+The tool uses ffmpeg to save the stream as MP3:
 
 ```
 caffeinate -i ffmpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 30 \
-  -i https://us2.maindigitalstream.com/ssl/WRMC -t <seconds> \
-  -c copy -bsf:a aac_adtstoasc <file>.m4a
+  -rw_timeout 30000000 -i https://us2.maindigitalstream.com/ssl/WRMC -t <seconds> \
+  -vn -c:a libmp3lame -b:a 128k <file>.mp3
 ```
 
 - `caffeinate -i` keeps the Mac awake during the recording.
 - The `-reconnect` options try to connect again if the stream stops for a short time.
+- `-rw_timeout` makes ffmpeg stop if no data arrives for 30 s, so the tool can start a new attempt.
+- MP3 has no index at the end of the file. If ffmpeg stops early, the file still plays.
 - `-c copy` saves the audio as it is, with no conversion.
 
 ### Stream
