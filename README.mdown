@@ -32,7 +32,7 @@ This tool records each show from the live stream and saves it as an audio file t
 - **Finds Avery's shows.** It finds each show where my daughter is a host. It uses her host tag on the website, so it still finds her shows if a show gets a new name or a new time. Obviously change this tag to your desired show.
 - **Sets the recordings.** For each of her shows in the next 8 days, it sets a recording. The recording starts 2 minutes before the show and stops 2 minutes after it.
 - **Uses the correct time.** The website gives each show time in New York time with the time zone. The Mac converts it to your local time. Clock changes in the US and the UK do not cause errors.
-- **Reminds you 12 hours before.** It adds an item to Apple Reminders (this syncs to your iPhone). It also shows a Mac alert, which can keep the Mac awake until the show ends.
+- **Reminds you 12, 5, and 2 hours before.** Each time, it adds an item to Apple Reminders (this syncs to your iPhone) and shows a Mac alert. The alert says to keep the lid open, and it can keep the Mac awake until the show ends.
 - **Tells you about the next show.** When you run an update yourself, you get a notification with the next show and its time.
 - **Tells you when a recording is saved.** You get a notification when each recording is complete.
 
@@ -126,7 +126,7 @@ The Mac runs these two commands by itself. You do not need to use them:
 | Command                       | What it does                            |
 | ----------------------------- | --------------------------------------- |
 | `wrmc record TITLE START END` | Records one show.                       |
-| `wrmc remind TITLE START END` | Shows the alert 12 hours before a show. |
+| `wrmc remind TITLE START END` | Shows the alert 12, 5, and 2 hours before a show. |
 
 ---
 
@@ -177,7 +177,7 @@ To change a setting:
 | `STREAM_URL`          | `https://us2.maindigitalstream.com/ssl/WRMC`  | The live audio stream.                                                                                              |
 | `SCHEDULE_URL`        | `https://wrmc.middlebury.edu/schedule-weekly` | The schedule page.                                                                                                  |
 
-**Note about reminder times:** Trail Mix starts at about 1:00 or 2:00 pm UK time. Thus, a 12-hour reminder comes at about 1:00 or 2:00 am. If you prefer a different time, change `REMIND_HOURS_BEFORE`.
+**Note about reminder times:** Trail Mix starts at about 1:00 or 2:00 pm UK time. Thus, the 12-hour reminder comes at about 1:00 or 2:00 am. To change the times, edit the list in `REMIND_HOURS_BEFORE` (now `(12, 5, 2)`).
 
 ---
 
@@ -223,7 +223,8 @@ This is the most common cause of a missed recording. The Mac must be on and awak
 - Keep the Mac plugged in to power.
 - Keep the lid open. (A closed MacBook goes to sleep unless it has an external display.)
 - In **System Settings > Battery > Options** (or **Energy**), turn on **"Prevent automatic sleeping on power adapter when the display is off"**.
-- When the 12-hour alert comes, click **"Keep Mac awake until the show ends"**. If you do not answer the alert, the Mac stays awake anyway.
+- **Do not close the lid.** A closed MacBook sleeps, even when plugged in, and `caffeinate` cannot stop it. The recording then fails.
+- When an alert comes, click **"Keep Mac awake until the show ends"**. If you do not answer the alert, the Mac stays awake anyway.
 
 When a recording starts, the tool keeps the Mac awake until the recording stops.
 
@@ -358,7 +359,7 @@ The tool uses **launchd**, which is the macOS system that starts jobs at set tim
 
 - `com.murch.wrmc.update` runs each day at 6:07 am and at login. It runs `wrmc.py update --quiet`.
 - For each show, `com.murch.wrmc.show.*` runs at the start time minus 2 minutes, on that date. It runs `wrmc.py record`.
-- For each show, `com.murch.wrmc.remind.*` runs 12 hours before. It runs `wrmc.py remind`.
+- For each show, `com.murch.wrmc.remind.*` runs 12, 5, and 2 hours before (one event for each). It runs `wrmc.py remind`.
 
 The times in these jobs are in the Mac's local time. The tool calculates them again each day, so clock changes are always correct.
 
