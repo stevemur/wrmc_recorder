@@ -44,6 +44,7 @@ SHOW_TITLES = []
 START_EARLY_MIN = 2      # start recording this many minutes early
 END_LATE_MIN = 2         # stop recording this many minutes late
 LOOKAHEAD_DAYS = 8
+MAX_SHOW_HOURS = 4       # a longer show is likely an AM/PM error on the website
 REMIND_HOURS_BEFORE = (12, 5, 2)  # Mac alert and Apple Reminder at each of these hours before
 USE_APPLE_REMINDERS = True  # also add a reminder in the Reminders app (syncs to iPhone)
 
@@ -160,6 +161,23 @@ def find_shows(html):
         start, end = parse_dt(s["times"][0]), parse_dt(s["times"][1])
         if end <= start:
             end += timedelta(days=1)
+        half_day = timedelta(hours=12)
+        max_len = timedelta(hours=MAX_SHOW_HOURS)
+        if end - start > max_len and timedelta(0) < end - start - half_day <= max_len:
+            # The website sometimes has an AM/PM error. Example: Trail Mix
+            # listed as "9:00 AM" to "10:00 PM" when it was 9 to 10 AM.
+            # We cannot tell if the start or the end is wrong, so record
+            # both possible times: the AM one and the PM one.
+            log(f"WARNING: {title} is listed as {start:%a %H:%M} to {end:%H:%M} New York. "
+                f"That is too long (AM/PM error on the website). Recording both "
+                f"{start:%H:%M}-{end - half_day:%H:%M} and "
+                f"{start + half_day:%H:%M}-{end:%H:%M}.")
+            for a, b in ((start, end - half_day), (start + half_day, end)):
+                found[(title, a)] = {"title": title, "start": a, "end": b}
+            continue
+        if end - start > max_len:
+            log(f"WARNING: {title} is listed as {start:%a %H:%M} to {end:%H:%M} New York "
+                f"({end - start} long). Recording all of it. Check the schedule.")
         found[(title, start)] = {"title": title, "start": start, "end": end}
     return sorted(found.values(), key=lambda x: x["start"])
 
