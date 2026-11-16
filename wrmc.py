@@ -41,7 +41,7 @@ HOST_TAGS = ["avery-murch"]
 # Example: SHOW_TITLES = ["TAM", "Trail Mix"]
 SHOW_TITLES = []
 
-START_EARLY_MIN = 2      # start recording this many minutes early
+START_EARLY_SEC = 30     # start recording this many seconds early
 END_LATE_MIN = 2         # stop recording this many minutes late
 LOOKAHEAD_DAYS = 8
 MAX_SHOW_HOURS = 4       # a longer show is likely an AM/PM error on the website
@@ -212,7 +212,9 @@ def unload(label):
 
 
 def show_plist(show, label):
-    fire = (show["start"] - timedelta(minutes=START_EARLY_MIN)).astimezone()  # Mac local time
+    # launchd fires on whole minutes only. Fire at the start of the minute that
+    # holds (start - START_EARLY_SEC); the record step then waits the extra seconds.
+    fire = (show["start"] - timedelta(seconds=START_EARLY_SEC)).astimezone()  # Mac local time
     return {
         "Label": label,
         "ProgramArguments": [
@@ -631,6 +633,11 @@ def cmd_record(title, start_s, end_s):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return 0
+    # launchd starts this job up to a minute early (or more, at login). Wait
+    # until START_EARLY_SEC before the show, and keep the Mac awake meanwhile.
+    wait = int((start - timedelta(seconds=START_EARLY_SEC) - datetime.now(timezone.utc)).total_seconds())
+    if wait > 0:
+        subprocess.run(["caffeinate", "-i", "-t", str(wait)])
     return record(title, stop, start.strftime("%Y-%m-%d"))
 
 
