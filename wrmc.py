@@ -6,7 +6,7 @@ Commands:
   wrmc.py update [--quiet]           Read the weekly schedule. For each of
                                      Avery's shows in the next 8 days, set a
                                      recording, plus a Mac alert and an
-                                     Apple Reminder 12, 5, and 2 hours
+                                     Apple Reminder 6 hours
                                      before. Then show a
                                      notice about the next show.
   wrmc.py next                       Show (and notify) Avery's next show.
@@ -45,7 +45,7 @@ START_EARLY_SEC = 30     # start recording this many seconds early
 END_LATE_MIN = 2         # stop recording this many minutes late
 LOOKAHEAD_DAYS = 8
 MAX_SHOW_HOURS = 4       # a longer show is likely an AM/PM error on the website
-REMIND_HOURS_BEFORE = (12, 5, 2)  # Mac alert and Apple Reminder at each of these hours before
+REMIND_HOURS_BEFORE = (6,)  # Mac alert and Apple Reminder at each of these hours before
 USE_APPLE_REMINDERS = True  # also add a reminder in the Reminders app (syncs to iPhone)
 
 HOME = os.path.expanduser("~")
@@ -425,7 +425,7 @@ def cmd_update(quiet=False):
                 f"= {s['start'].astimezone():%a %d %b %H:%M} on this Mac")
     remove_stale_agents(SHOW_PREFIX, wanted, now)
 
-    # 2. Mac alerts 12, 5, and 2 hours before (only times still ahead).
+    # 2. Mac alert 6 hours before (only times still ahead).
     wanted_r = {}
     for s in upcoming:
         for h in REMIND_HOURS_BEFORE:
